@@ -28,7 +28,7 @@ class OneLogin_Saml2_Logout_Request(object):
 
     """
 
-    def __init__(self, settings, request=None, name_id=None, session_index=None, nq=None):
+    def __init__(self, settings, request=None, name_id=None, session_index=None):
         """
         Constructs the Logout Request object.
 
@@ -43,9 +43,6 @@ class OneLogin_Saml2_Logout_Request(object):
 
         :param session_index: SessionIndex that identifies the session of the user.
         :type session_index: string
-
-        :param nq: IDP Name Qualifier
-        :type: string
         """
         self.__settings = settings
         self.__error = None
@@ -67,17 +64,20 @@ class OneLogin_Saml2_Logout_Request(object):
 
             if name_id is not None:
                 nameIdFormat = sp_data['NameIDFormat']
-                spNameQualifier = None
+                spNameQualifier = sp_data['entityId']
+                nameQualifier = idp_data['entityId']
             else:
                 name_id = idp_data['entityId']
                 nameIdFormat = OneLogin_Saml2_Constants.NAMEID_ENTITY
                 spNameQualifier = sp_data['entityId']
+                nameQualifier = None
 
             name_id_obj = OneLogin_Saml2_Utils.generate_name_id(
                 name_id,
                 spNameQualifier,
                 nameIdFormat,
-                cert
+                cert=cert,
+                nq=nameQualifier
             )
 
             if session_index:
