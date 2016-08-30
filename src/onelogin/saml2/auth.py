@@ -334,7 +334,6 @@ class OneLogin_Saml2_Auth(object):
             self.__settings,
             name_id=name_id,
             session_index=session_index,
-            nq=nq
         )
 
         self.__last_request_id = logout_request.id
