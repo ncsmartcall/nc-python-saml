@@ -77,7 +77,6 @@ class OneLogin_Saml2_Metadata(object):
             organization = {}
 
         str_attribute_consuming_service = ''
-
         if 'attributeConsumingService' in sp and len(sp['attributeConsumingService']):
             attr_cs_desc_str = ''
             if "serviceDescription" in sp['attributeConsumingService']:
@@ -95,15 +94,22 @@ class OneLogin_Saml2_Metadata(object):
                     req_attr_nameformat_str = " FriendlyName=\"%s\"" % req_attribs['friendlyName']
                 if 'isRequired' in req_attribs.keys() and req_attribs['isRequired']:
                     req_attr_isrequired_str = " isRequired=\"%s\"" % 'true' if req_attribs['isRequired'] else 'false'
-                if 'attributeValue' in req_attribs.keys() and req_attribs['attributeValue']:
-                    req_attr_aux_str = """ >
-            <saml:AttributeValue xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion>%(attributeValue)</saml:AttributeValue>
-</md:RequestedAttribute>""" % \
-                        {
-                            'attributeValue': req_attribs['attributeValue']
-                        }
 
-                requested_attribute = """            <md:RequestedAttribute Name="%(req_attr_name)s"%(req_attr_nameformat_str)s%(req_attr_isrequired_str)s%(req_attr_aux_str)s""" % \
+                if 'attributeValue' in req_attribs.keys() and req_attribs['attributeValue']:
+                    if isinstance(req_attribs['attributeValue'], basestring):
+                        req_attribs['attributeValue'] = [req_attribs['attributeValue']]
+
+                    req_attr_aux_str = ">"
+                    for attrValue in req_attribs['attributeValue']:
+                        req_attr_aux_str += """
+                <saml:AttributeValue xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">%(attributeValue)s</saml:AttributeValue>""" % \
+                            {
+                                'attributeValue': attrValue
+                            }
+                    req_attr_aux_str += """
+            </md:RequestedAttribute>"""
+
+                requested_attribute = """            <md:RequestedAttribute Name="%(req_attr_name)s"%(req_attr_nameformat_str)s%(req_attr_friendlyname_str)s%(req_attr_isrequired_str)s%(req_attr_aux_str)s""" % \
                     {
                         'req_attr_name': req_attribs['name'],
                         'req_attr_nameformat_str': req_attr_nameformat_str,
@@ -167,7 +173,7 @@ class OneLogin_Saml2_Metadata(object):
                 contacts_info.append(contact)
             str_contacts = '\n'.join(contacts_info) + '\n'
 
-        metadata = """<?xml version="1.0"?>
+        metadata = u"""<?xml version="1.0"?>
 <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
                      %(valid)s
                      %(cache)s
@@ -196,7 +202,7 @@ class OneLogin_Saml2_Metadata(object):
         return metadata
 
     @staticmethod
-    def sign_metadata(metadata, key, cert, sign_algorithm=OneLogin_Saml2_Constants.RSA_SHA1):
+    def sign_metadata(metadata, key, cert, sign_algorithm=OneLogin_Saml2_Constants.RSA_SHA1, digest_algorithm=OneLogin_Saml2_Constants.SHA1):
         """
         Signs the metadata with the key/cert provided
 
@@ -212,13 +218,16 @@ class OneLogin_Saml2_Metadata(object):
         :param sign_algorithm: Signature algorithm method
         :type sign_algorithm: string
 
+        :param digest_algorithm: Digest algorithm method
+        :type digest_algorithm: string
+
         :returns: Signed Metadata
         :rtype: string
         """
-        return OneLogin_Saml2_Utils.add_sign(metadata, key, cert, False, sign_algorithm)
+        return OneLogin_Saml2_Utils.add_sign(metadata, key, cert, False, sign_algorithm, digest_algorithm)
 
     @staticmethod
-    def add_x509_key_descriptors(metadata, cert=None):
+    def add_x509_key_descriptors(metadata, cert=None, add_encryption=True):
         """
         Adds the x509 descriptors (sign/encryption) to the metadata
         The same cert will be used for sign/encrypt
@@ -229,13 +238,16 @@ class OneLogin_Saml2_Metadata(object):
         :param cert: x509 cert
         :type cert: string
 
+        :param add_encryption: Determines if the KeyDescriptor[use="encryption"] should be added.
+        :type add_encryption: boolean
+
         :returns: Metadata with KeyDescriptors
         :rtype: string
         """
         if cert is None or cert == '':
             return metadata
         try:
-            xml = parseString(metadata)
+            xml = parseString(metadata.encode('utf-8'))
         except Exception as e:
             raise Exception('Error parsing metadata. ' + e.message)
 
@@ -256,18 +268,18 @@ class OneLogin_Saml2_Metadata(object):
 
         sp_sso_descriptor = entity_descriptor.getElementsByTagName('md:SPSSODescriptor')[0]
         sp_sso_descriptor.insertBefore(key_descriptor.cloneNode(True), sp_sso_descriptor.firstChild)
-        sp_sso_descriptor.insertBefore(key_descriptor.cloneNode(True), sp_sso_descriptor.firstChild)
+        if add_encryption:
+            sp_sso_descriptor.insertBefore(key_descriptor.cloneNode(True), sp_sso_descriptor.firstChild)
 
         signing = xml.getElementsByTagName('md:KeyDescriptor')[0]
         signing.setAttribute('use', 'signing')
-
-        encryption = xml.getElementsByTagName('md:KeyDescriptor')[1]
-        encryption.setAttribute('use', 'encryption')
-
         signing.appendChild(key_info)
-        encryption.appendChild(key_info.cloneNode(True))
-
         signing.setAttribute('xmlns:ds', OneLogin_Saml2_Constants.NS_DS)
-        encryption.setAttribute('xmlns:ds', OneLogin_Saml2_Constants.NS_DS)
+
+        if add_encryption:
+            encryption = xml.getElementsByTagName('md:KeyDescriptor')[1]
+            encryption.setAttribute('use', 'encryption')
+            encryption.appendChild(key_info.cloneNode(True))
+            encryption.setAttribute('xmlns:ds', OneLogin_Saml2_Constants.NS_DS)
 
         return xml.toxml()

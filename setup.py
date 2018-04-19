@@ -9,10 +9,10 @@ from setuptools import setup
 
 setup(
     name='python-saml',
-    version='2.1.9',
+    version='2.4.0',
     description='Onelogin Python Toolkit. Add SAML support to your Python software using this library',
     classifiers=[
-        'Development Status :: 4 - Beta',
+        'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
         'Intended Audience :: System Administrators',
         'Operating System :: OS Independent',
@@ -22,9 +22,9 @@ setup(
     author_email='support@onelogin.com',
     license='MIT',
     url='https://github.com/onelogin/python-saml',
-    packages=['onelogin','onelogin/saml2'],
+    packages=['onelogin', 'onelogin/saml2'],
     include_package_data=True,
-    package_data = {
+    package_data={
             'onelogin/saml2/schemas': ['*.xsd'],
     },
     package_dir={
@@ -32,9 +32,9 @@ setup(
     },
     test_suite='tests',
     install_requires=[
-        'dm.xmlsec.binding==1.3.2',
+        'dm.xmlsec.binding==1.3.3',
         'isodate>=0.5.0',
-        'defusedxml==0.4.1',
+        'defusedxml>=0.4.1',
     ],
     extras_require={
         'test': (

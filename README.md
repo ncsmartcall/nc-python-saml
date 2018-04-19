@@ -14,9 +14,15 @@ Python3: [python3-saml](https://github.com/onelogin/python3-saml).
 
 #### Warning ####
 
-Update python-saml to 2.1.9, this version includes a security patch that contains extra validations that will prevent signature wrapping attacks.
+Update python-saml to 2.4.0, this version includes a fix for the [CVE-2017-11427](https://www.cvedetails.com/cve/CVE-2017-11427/) vulnerability.
 
-python-saml < v2.1.6 is vulnerable and allows signature wrapping!
+This version also changes how the calculate fingerprint method works, and will expect as input a formatted x509 certificate
+
+Update python-saml to 2.2.3, this version replaces some etree.tostring calls, that were introduced recently,  by the sanitized call provided by defusedxml
+
+Update python-saml to 2.2.0, this version includes a security patch that contains extra validations that will prevent signature wrapping attacks. [CVE-2016-1000252](https://github.com/distributedweaknessfiling/DWF-Database-Artifacts/blob/master/DWF/2016/1000252/CVE-2016-1000252.json)
+
+python-saml < v2.2.0 is vulnerable and allows signature wrapping!
 
 #### Security Guidelines ####
 
@@ -48,8 +54,8 @@ since 2002, but lately it is becoming popular due its advantages:
 General description
 -------------------
 
-OneLogin's SAML Python toolkit lets you turn you Python application into an SP
-(Service Provider) that can connect to a IdP (Identity Provider).
+OneLogin's SAML Python toolkit lets you turn your Python application into a SP
+(Service Provider) that can be connected to an IdP (Identity Provider).
 
 Supports:
 
@@ -144,7 +150,7 @@ the classes and methods that are described in a later section.
 
 This folder contains a Django project that will be used as demo to show how to add SAML support to the Django Framework. 'demo' is the main folder of the django project (with its settings.py, views.py, urls.py), 'templates' is the django templates of the project and 'saml' is a folder that contains the 'certs' folder that could be used to store the x509 public and private key, and the saml toolkit settings (settings.json and advanced_settings.json).
 
-***Notice about certs***
+*** Notice about certs ***
 
 SAML requires a x.509 cert to sign and encrypt elements like NameID, Message, Assertion, Metadata.
 
@@ -156,6 +162,9 @@ If our environment requires sign or encrypt support, the certs folder may contai
 Or also we can provide those data in the setting file at the 'x509cert' and the privateKey' json parameters of the 'sp' element.
 
 Sometimes we could need a signature on the metadata published by the SP, in this case we could use the x.509 cert previously mentioned or use a new x.509 cert: metadata.crt and metadata.key.
+
+Use `sp_new.crt` if you are in a key rollover process and you want to
+publish that x509certificate on Service Provider metadata.
 
 If you want to create self-signed certs, you can do it at the https://www.samltool.com/self_signed_certs.php service, or using the command:
 
@@ -171,6 +180,12 @@ This folder contains a Bottle project that will be used as demo to show how to a
 #### demo-flask ####
 
 This folder contains a Flask project that will be used as demo to show how to add SAML support to the Flask Framework. 'index.py' is the main flask file that has all the code, this file uses the templates stored at the 'templates' folder. In the 'saml' folder we found the 'certs' folder to store the x509 public and private key, and the saml toolkit settings (settings.json and advanced_settings.json).
+
+
+#### demo_pyramid ####
+
+This folder contains a Pyramid project that will be used as demo to show how to add SAML support to the [Pyramid Web Framework](http://docs.pylonsproject.org/projects/pyramid/en/latest/).  '\_\_init__.py' is the main file that configures the app and its routes, 'views.py' is where all the logic and SAML handling takes place, and the templates are stored in the 'templates' folder. The 'saml' folder is the same as in the other two demos.
+
 
 #### setup.py ####
 
@@ -243,7 +258,7 @@ This is the settings.json file:
         // attributeConsumingService. nameFormat, attributeValue and
         // friendlyName can be omitted
         "attributeConsumingService": {
-                "ServiceName": "SP test",
+                "serviceName": "SP test",
                 "serviceDescription": "Test Service",
                 "requestedAttributes": [
                     {
@@ -251,7 +266,7 @@ This is the settings.json file:
                         "isRequired": false,
                         "nameFormat": "",
                         "friendlyName": "",
-                        "attributeValue": ""
+                        "attributeValue": []
                     }
                 ]
         },
@@ -273,6 +288,15 @@ This is the settings.json file:
         // the certs folder. But we can also provide them with the following parameters
         "x509cert": "",
         "privateKey": ""
+
+        /*
+         * Key rollover
+         * If you plan to update the SP x509cert and privateKey
+         * you can define here the new x509cert and it will be 
+         * published on the SP metadata so Identity Providers can
+         * read them and get ready for rollover.
+         */
+        // 'x509certNew': '',
     },
 
     // Identity Provider Data that we want connected with our SP.
@@ -314,8 +338,24 @@ This is the settings.json file:
          *  Notice that if you want to validate any SAML Message sent by the HTTP-Redirect binding, you
          *  will need to provide the whole x509cert.
          */
-        // 'certFingerprint' => '',
-        // 'certFingerprintAlgorithm' => 'sha1',
+        // 'certFingerprint': '',
+        // 'certFingerprintAlgorithm': 'sha1',
+
+        /* In some scenarios the IdP uses different certificates for
+         * signing/encryption, or is under key rollover phase and
+         * more than one certificate is published on IdP metadata.
+         * In order to handle that the toolkit offers that parameter.
+         * (when used, 'x509cert' and 'certFingerprint' values are
+         * ignored).
+         */
+        // 'x509certMulti': {
+        //      'signing': [
+        //          '<cert1-string>'
+        //      ],
+        //      'encryption': [
+        //          '<cert2-string>'
+        //      ]
+        // }
     }
 }
 ```
@@ -365,7 +405,7 @@ In addition to the required settings data (idp, sp), extra settings can be defin
 
         // Indicates a requirement for the <saml:Assertion>
         // elements received by this SP to be encrypted.
-        'wantAssertionsEncrypted' => false,
+        "wantAssertionsEncrypted": false,
 
         // Indicates a requirement for the NameID element on the SAMLResponse
         // received by this SP to be present.
@@ -378,20 +418,25 @@ In addition to the required settings data (idp, sp), extra settings can be defin
         // Indicates a requirement for the AttributeStatement element
         "wantAttributeStatement": true,
 
+        // Rejects SAML responses with a InResponseTo attribute when request_id
+        // not provided in the process_response method that later call the 
+        // response is_valid method with that parameter.
+        "rejectUnsolicitedResponsesWithInResponseTo": false,
+
         // Authentication context.
         // Set to false and no AuthContext will be sent in the AuthNRequest,
         // Set true or don't present this parameter and you will get an AuthContext 'exact' 'urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport'
         // Set an array with the possible auth context values: array ('urn:oasis:names:tc:SAML:2.0:ac:classes:Password', 'urn:oasis:names:tc:SAML:2.0:ac:classes:X509'),
-        'requestedAuthnContext': true,
+        "requestedAuthnContext": true,
         // Allows the authn comparison parameter to be set, defaults to 'exact' if the setting is not present.
-        'requestedAuthnContextComparison': 'exact',
+        "requestedAuthnContextComparison": "exact",
 
         // In some environment you will need to set how long the published metadata of the Service Provider gonna be valid.
         // is possible to not set the 2 following parameters (or set to null) and default values will be set (2 days, 1 week)
         // Provide the desired Timestamp, for example 2015-06-26T20:00:00Z
-        'metadataValidUntil': null,
+        "metadataValidUntil": null,
         // Provide the desired duration, for example PT518400S (6 days)
-        'metadataCacheDuration': null,
+        "metadataCacheDuration": null,
 
         // Algorithm that the toolkit will use on signing process. Options:
         //    'http://www.w3.org/2000/09/xmldsig#rsa-sha1'
@@ -399,7 +444,14 @@ In addition to the required settings data (idp, sp), extra settings can be defin
         //    'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256'
         //    'http://www.w3.org/2001/04/xmldsig-more#rsa-sha384'
         //    'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512'
-        'signatureAlgorithm' => 'http://www.w3.org/2000/09/xmldsig#rsa-sha1'
+        "signatureAlgorithm": "http://www.w3.org/2000/09/xmldsig#rsa-sha1",
+
+        // Algorithm that the toolkit will use on digest process. Options:
+        //    'http://www.w3.org/2000/09/xmldsig#sha1'
+        //    'http://www.w3.org/2001/04/xmlenc#sha256'
+        //    'http://www.w3.org/2001/04/xmldsig-more#sha384'
+        //    'http://www.w3.org/2001/04/xmlenc#sha512'
+        "digestAlgorithm": "http://www.w3.org/2000/09/xmldsig#sha1"
     },
 
     // Contact information template, it is recommended to supply
@@ -462,6 +514,23 @@ json_data_file.close()
 auth = OneLogin_Saml2_Auth(req, settings_data)
 ```
 
+#### Metadata Based Configuration
+
+The method above requires a little extra work to manually specify attributes about the IdP. (And your SP application)
+
+There's an easier method -- use a metadata exchange.  Metadata is just an XML file that defines the capabilities of both the IdP and the SP application.  It also contains the X.509 public key certificates which add to the trusted relationship.  The IdP administrator can also configure custom settings for an SP based on the metadata.
+
+Using ````parse_remote```` IdP metadata can be obtained and added to the settings withouth further ado.
+
+``
+idp_data = OneLogin_Saml2_IdPMetadataParser.parse_remote('https://example.com/auth/saml2/idp/metadata')
+``
+
+If the Metadata contains several entities, the relevant EntityDescriptor can be specified when retrieving the settings from the IdpMetadataParser by its Entity Id value:
+
+idp_data = OneLogin_Saml2_IdPMetadataParser.parse_remote(https://example.com/metadatas, entity_id='idp_entity_id')
+
+
 #### How load the library ####
 
 In order to use the toolkit library you need to import the file that contains the class that you will need
@@ -485,6 +554,7 @@ This parameter has the following scheme:
 
 ```javascript
 req = {
+    "https": ""  
     "http_host": "",
     "script_name": "",
     "server_port": "",
@@ -516,7 +586,7 @@ def prepare_from_flask_request(request):
         'post_data': request.form.copy()
     }
 ```
-
+The https dictionary entry should be set to on for https requests and off for http
 
 #### Initiate SSO ####
 
@@ -559,7 +629,7 @@ auth.get_last_request_id()
 Related to the SP there are 3 important endpoints: The metadata view, the ACS view and the SLS view.
 The toolkit provides examples of those views in the demos, but lets see an example.
 
-***SP Metadata***
+*** SP Metadata ***
 
 This code will provide the XML metadata file of our SP, based on the info that we provided in the settings files.
 
@@ -585,7 +655,7 @@ saml_settings = OneLogin_Saml2_Settings(settings=None, custom_base_path=None, sp
 ```
 to get the settings object and with the sp_validation_only=True parameter we will avoid the IdP Settings validation.
 
-***Attribute Consumer Service(ACS)***
+*** Attribute Consumer Service(ACS) ***
 
 This code handles the SAML response that the IdP forwards to the SP through the user's client.
 
@@ -651,7 +721,7 @@ print auth.get_attribute('cn')
 Before trying to get an attribute, check that the user is authenticated. If the user isn't authenticated, an empty dict will be returned. For example, if we call to get_attributes before a auth.process_response, the get_attributes() will return an empty dict.
 
 
-***Single Logout Service (SLS)***
+*** Single Logout Service (SLS) ***
 
 This code handles the Logout Request and the Logout Responses.
 
@@ -719,6 +789,15 @@ auth.process_slo(keep_local_session=keepLocalSession);
 #### Initiate SLO ####
 
 In order to send a Logout Request to the IdP:
+```python
+from onelogin.saml2.auth import OneLogin_Saml2_Auth
+
+req = prepare_request_for_toolkit(request)
+auth = OneLogin_Saml2_Auth(req)   # Constructor of the SP, loads settings.json
+                                  # and advanced_settings.json
+
+auth.logout()      # Method that builds and sends the LogoutRequest
+```
 
 The Logout Request will be sent signed or unsigned based on the security info of the advanced_settings.json ('logoutRequestSigned').
 
@@ -731,11 +810,17 @@ target_url = 'https://example.com'
 auth.logout(return_to=target_url)
 ```
 
-Also there are 2 optional parameters that can be set:
+Also there are 4 optional parameters that can be set:
 
 * name_id. That will be used to build the LogoutRequest. If not name_id parameter is set and the auth object processed a
 SAML Response with a NameId, then this NameId will be used.
 * session_index. SessionIndex that identifies the session of the user.
+* nq. IDP Name Qualifier
+* name_id_format. The NameID Format that will be set in the LogoutRequest
+
+If no name_id is provided, the LogoutRequest will contain a NameID with the entity Format.
+If name_id is provided and no name_id_format is provided, the NameIDFormat of the settings will be used.
+If nq is provided, the SPNameQualifier will be also attached to the NameId.
 
 If a match on the LogoutResponse ID and the LogoutRequest ID to be sent is required, that LogoutRequest ID must to be extracted and stored for future validation, we can get that ID by
 
@@ -743,7 +828,7 @@ If a match on the LogoutResponse ID and the LogoutRequest ID to be sent is requi
 auth.get_last_request_id()
 ```
 
-####Example of a view that initiates the SSO request and handles the response (is the acs target)####
+#### Example of a view that initiates the SSO request and handles the response (is the acs target) ####
 
 We can code a unique file that initiates the SSO process, handle the response, get the attributes, initiate the slo and processes the logout response.
 
@@ -793,12 +878,38 @@ else:
   print ', '.join(errors)
 ```
 
+### SP Key rollover ###
+
+If you plan to update the SP x509cert and privateKey you can define the new x509cert as settings['sp']['x509certNew'] and it will be 
+published on the SP metadata so Identity Providers can read them and get ready for rollover.
+
+
+### IdP with multiple certificates ###
+
+In some scenarios the IdP uses different certificates for
+signing/encryption, or is under key rollover phase and more than one certificate is published on IdP metadata.
+
+In order to handle that the toolkit offers the settings['idp']['x509certMulti'] parameter.
+
+When that parameter is used, 'x509cert' and 'certFingerprint' values will be ignored by the toolkit.
+
+The 'x509certMulti' is an array with 2 keys:
+- 'signing'. An array of certs that will be used to validate IdP signature 
+- 'encryption' An array with one unique cert that will be used to encrypt data to be sent to the IdP
+
+
+### Replay attacks ###
+ 
+ In order to avoid reply attacks, you can store the ID of the SAML messages already processed, to avoid processing them twice. Since the Messages expires and will be invalidated due that fact, you don't need to store those IDs longer than the time frame that you currently accepting.
+ 
+ Get the ID of the last processed message/assertion with the get_last_message_id/get_last_assertion_id method of the Auth object.
+
 
 ### Main classes and methods ###
 
 Described below are the main classes and methods that can be invoked from the SAML2 library.
 
-####OneLogin_Saml2_Auth - auth.py####
+#### OneLogin_Saml2_Auth - auth.py ####
 
 Main class of OneLogin Python Toolkit
 
@@ -818,22 +929,27 @@ Main class of OneLogin Python Toolkit
 * ***get_last_error_reason*** Returns the reason of the last error
 * ***get_sso_url*** Gets the SSO url.
 * ***get_slo_url*** Gets the SLO url.
-* ***get_last_request_id*** The ID of the last Request SAML message generated.
+* ***get_last_request_id*** The ID of the last Request SAML message generated (AuthNRequest, LogoutRequest).
 * ***build_request_signature*** Builds the Signature of the SAML Request.
 * ***build_response_signature*** Builds the Signature of the SAML Response.
 * ***get_settings*** Returns the settings info.
 * ***set_strict*** Set the strict mode active/disable.
+* ***get_last_request_xml*** Returns the most recently-constructed/processed XML SAML request (AuthNRequest, LogoutRequest)
+* ***get_last_response_xml*** Returns the most recently-constructed/processed XML SAML response (SAMLResponse, LogoutResponse). If the SAMLResponse had an encrypted assertion, decrypts it.
+* ***get_last_message_id*** The ID of the last Response SAML message processed.
+* ***get_last_assertion_id*** The ID of the last assertion processed.
+* ***get_last_assertion_not_on_or_after*** The NotOnOrAfter value of the valid SubjectConfirmationData node (if any) of the last assertion processed (is only calculated with strict = true)
 
-####OneLogin_Saml2_Auth - authn_request.py####
+#### OneLogin_Saml2_Auth - authn_request.py ####
 
 SAML 2 Authentication Request class
 
 * `__init__` This class handles an AuthNRequest. It builds an AuthNRequest object.
 * ***get_request*** Returns unsigned AuthnRequest.
 * ***get_id*** Returns the AuthNRequest ID.
+* ***get_xml*** Returns the XML that will be sent as part of the request.
 
-
-####OneLogin_Saml2_Response - response.py####
+#### OneLogin_Saml2_Response - response.py ####
 
 SAML 2 Authentication Response class
 
@@ -850,8 +966,12 @@ SAML 2 Authentication Response class
 * ***validate_num_assertions*** Verifies that the document only contains a single Assertion (encrypted or not)
 * ***validate_timestamps*** Verifies that the document is valid according to Conditions Element
 * ***get_error*** After execute a validation process, if fails this method returns the cause
+* ***get_xml_document*** Returns the SAML Response document (If contains an encrypted assertion, decrypts it).
+* ***get_id*** the ID of the response
+* ***get_assertion_id*** the ID of the assertion in the response
+* ***get_assertion_not_on_or_after*** the NotOnOrAfter value of the valid SubjectConfirmationData if any
 
-####OneLogin_Saml2_LogoutRequest - logout_request.py####
+#### OneLogin_Saml2_LogoutRequest - logout_request.py ####
 
 SAML 2 Logout Request class
 
@@ -864,8 +984,9 @@ SAML 2 Logout Request class
 * ***get_session_indexes*** Gets the SessionIndexes from the Logout Request.
 * ***is_valid*** Checks if the Logout Request recieved is valid.
 * ***get_error*** After execute a validation process, if fails this method returns the cause.
+* ***get_xml*** Returns the XML that will be sent as part of the request or that was received at the SP
 
-####OneLogin_Saml2_LogoutResponse - logout_response.py####
+#### OneLogin_Saml2_LogoutResponse - logout_response.py ####
 
 SAML 2 Logout Response class
 
@@ -876,9 +997,10 @@ SAML 2 Logout Response class
 * ***build*** Creates a Logout Response object.
 * ***get_response*** Returns a Logout Response object.
 * ***get_error*** After execute a validation process, if fails this method returns the cause.
+* ***get_xml*** Returns the XML that will be sent as part of the response or that was received at the SP
 
 
-####OneLogin_Saml2_Settings - settings.py####
+#### OneLogin_Saml2_Settings - settings.py ####
 
 Configuration of the OneLogin Python Toolkit
 
@@ -897,6 +1019,7 @@ Configuration of the OneLogin Python Toolkit
 * ***check_sp_certs*** Checks if the x509 certs of the SP exists and are valid.
 * ***get_sp_key*** Returns the x509 private key of the SP.
 * ***get_sp_cert*** Returns the x509 public cert of the SP.
+* ***get_sp_cert_new*** Returns the future x509 public cert of the SP.
 * ***get_idp_cert*** Returns the x509 public cert of the IdP.
 * ***get_sp_data*** Gets the SP data.
 * ***get_idp_data*** Gets the IdP data.
@@ -904,13 +1027,15 @@ Configuration of the OneLogin Python Toolkit
 * ***get_contacts*** Gets contacts data.
 * ***get_organization*** Gets organization data.
 * ***format_idp_cert*** Formats the IdP cert.
+* ***format_idp_cert_multi*** Formats all registered IdP certs.
 * ***format_sp_cert*** Formats the SP cert.
+* ***format_sp_cert_new*** Formats the SP cert new.
 * ***format_sp_key*** Formats the private key.
 * ***set_strict*** Activates or deactivates the strict mode.
 * ***is_strict*** Returns if the 'strict' mode is active.
 * ***is_debug_active*** Returns if the debug is active.
 
-####OneLogin_Saml2_Metadata - metadata.py####
+#### OneLogin_Saml2_Metadata - metadata.py ####
 
 A class that contains functionality related to the metadata of the SP
 
@@ -918,7 +1043,7 @@ A class that contains functionality related to the metadata of the SP
 * ***sign_metadata*** Signs the metadata with the key/cert provided.
 * ***add_x509_key_descriptors*** Adds the x509 descriptors (sign/encriptation) to the metadata
 
-####OneLogin_Saml2_Utils - utils.py####
+#### OneLogin_Saml2_Utils - utils.py ####
 
 Auxiliary class that contains several methods
 
@@ -954,7 +1079,7 @@ Auxiliary class that contains several methods
 * ***def get_encoded_parameter*** Return an url encoded get parameter value
 * ***extract_raw_query_parameter***
 
-####OneLogin_Saml2_IdPMetadataParser - idp_metadata_parser.py####
+#### OneLogin_Saml2_IdPMetadataParser - idp_metadata_parser.py ####
 
 A class that contains methods to obtain and parse metadata from IdP
 
@@ -964,6 +1089,9 @@ A class that contains methods to obtain and parse metadata from IdP
 * ***merge_settings*** Will update the settings with the provided new settings data extracted from the IdP metadata
 
 For more info, look at the source code; each method is documented and details about what does and how to use it are provided. Make sure to also check the doc folder where HTML documentation about the classes and methods is provided.
+
+
+
 
 Demos included in the toolkit
 -----------------------------
@@ -979,7 +1107,7 @@ how it deployed. New demos using other python frameworks are welcome as a contri
 We said that this toolkit includes a django application demo and a flask applicacion demo,
 lets see how fast is deploy them.
 
-***Virtualenv***
+*** Virtualenv ***
 
 The use of a [virtualenv](http://virtualenv.readthedocs.org/en/latest/) is
 highly recommended.
@@ -1024,7 +1152,7 @@ Now, with the virtualenv loaded, you can run the demo like this:
 
 You'll have the demo running at http://localhost:8000
 
-####Content####
+#### Content ####
 
 The flask project contains:
 
@@ -1036,7 +1164,7 @@ The flask project contains:
 * ***saml*** Is a folder that contains the 'certs' folder that could be used to store the x509 public and private key, and the saml toolkit settings (settings.json and advanced_settings.json).
 
 
-####SP setup####
+#### SP setup ####
 
 The Onelogin's Python Toolkit allows you to provide the settings info in 2 ways: settings files or define a setting dict. In the demo-flask it used the first method.
 
@@ -1044,11 +1172,11 @@ In the index.py file we define the app.config['SAML_PATH'], that will target to 
 
 First we need to edit the saml/settings.json, configure the SP part and  review the metadata of the IdP and complete the IdP info.  Later edit the saml/advanced_settings.json files and configure the how the toolkit will work. Check the settings section of this document if you have any doubt.
 
-####IdP setup####
+#### IdP setup ####
 
 Once the SP is configured, the metadata of the SP is published at the /metadata url. Based on that info, configure the IdP.
 
-####How it works####
+#### How it works ####
 
 1. First time you access to the main view 'http://localhost:8000', you can select to login and return to the same view or login and be redirected to /?attrs (attrs view).
 
@@ -1093,7 +1221,7 @@ Note that many of the configuration files expect HTTPS. This is not required by 
 
 If you want to integrate a production django application, take a look on this SAMLServiceProviderBackend that uses our toolkit to add SAML support: https://github.com/KristianOellegaard/django-saml-service-provider
 
-####Content####
+#### Content ####
 
 The django project contains:
 
@@ -1109,7 +1237,7 @@ The django project contains:
 
 * ***templates***. Is the folder where django stores the templates of the project. It was implemented a base.html template that is extended by index.html and attrs.html, the templates of our simple demo that shows messages, user attributes when available and login and logout links.
 
-####SP setup####
+#### SP setup ####
 
 The Onelogin's Python Toolkit allows you to provide the settings info in 2 ways: settings files or define a setting dict. In the demo-django it used the first method.
 
@@ -1117,10 +1245,83 @@ After set the SAML_FOLDER in the demo/settings.py, the settings of the python to
 
 First we need to edit the saml/settings.json, configure the SP part and  review the metadata of the IdP and complete the IdP info.  Later edit the saml/advanced_settings.json files and configure the how the toolkit will work. Check the settings section of this document if you have any doubt.
 
-####IdP setup####
+#### IdP setup ####
 
 Once the SP is configured, the metadata of the SP is published at the /metadata url. Based on that info, configure the IdP.
 
-####How it works####
+#### How it works ####
 
 This demo works very similar to the flask-demo (We did it intentionally).
+
+
+### Demo Pyramid ###
+
+Unlike the other two projects, you don't need a pre-existing virtualenv to get
+up and running here, since Pyramid comes from the
+[buildout](http://www.buildout.org/en/latest/) school of thought.
+
+To run the demo you need to install Pyramid, the requirements, etc.:
+```
+ cd demo_pyramid
+ python -m venv env
+ env/bin/pip install --upgrade pip setuptools
+ env/bin/pip install -e ".[testing]"
+```
+
+Next, edit the settings in `demo_pyramid/saml/settings.json`. (Pyramid runs on
+port 6543 by default.)
+
+Now you can run the demo like this:
+```
+ env/bin/pserve development.ini
+```
+
+If that worked, the demo is now running at http://localhost:6543.
+
+#### Content ####
+
+The Pyramid project contains:
+
+
+* ***\_\_init__.py*** is the main Pyramid file that configures the app and its routes.
+
+* ***views.py*** is where all the SAML handling takes place.
+
+* ***templates*** is the folder where Pyramid stores the templates of the project. It was implemented a layout.jinja2 template that is extended by index.jinja2 and attrs.jinja2, the templates of our simple demo that shows messages, user attributes when available and login and logout links.
+
+* ***saml*** is a folder that contains the 'certs' folder that could be used to store the x509 public and private key, and the saml toolkit settings (settings.json and advanced_settings.json).
+
+
+#### SP setup ####
+
+The Onelogin's Python Toolkit allows you to provide the settings info in 2 ways: settings files or define a setting dict. In demo_pyramid the first method is used.
+
+In the views.py file we define the SAML_PATH, which will target the 'saml' folder. We require it in order to load the settings files.
+
+First we need to edit the saml/settings.json, configure the SP part and review the metadata of the IdP and complete the IdP info.  Later edit the saml/advanced_settings.json files and configure the how the toolkit will work. Check the settings section of this document if you have any doubt.
+
+#### IdP setup ####
+
+Once the SP is configured, the metadata of the SP is published at the /metadata/ url. Based on that info, configure the IdP.
+
+#### How it works ####
+
+1. First time you access to the main view 'http://localhost:6543', you can select to login and return to the same view or login and be redirected to /?attrs (attrs view).
+
+ 2. When you click:
+
+    2.1 in the first link, we access to /?sso (index view). An AuthNRequest is sent to the IdP, we authenticate at the IdP and then a Response is sent through the user's client to the SP, specifically the Assertion Consumer Service view: /?acs. Notice that a RelayState parameter is set to the url that initiated the process, the index view.
+
+    2.2 in the second link we access to /?attrs (attrs view), we will expetience have the same process described at 2.1 with the diference that as RelayState is set the attrs url.
+
+ 3. The SAML Response is processed in the ACS /?acs, if the Response is not valid, the process stops here and a message is shown. Otherwise we are redirected to the RelayState view. a) / or b) /?attrs
+
+ 4. We are logged in the app and the user attributes are showed. At this point, we can test the single log out functionality.
+
+ The single log out funcionality could be tested by 2 ways.
+
+    5.1 SLO Initiated by SP. Click on the "logout" link at the SP, after that a Logout Request is sent to the IdP, the session at the IdP is closed and replies through the client to the SP with a Logout Response (sent to the Single Logout Service endpoint). The SLS endpoint /?sls of the SP process the Logout Response and if is valid, close the user session of the local app. Notice that the SLO Workflow starts and ends at the SP.
+
+    5.2 SLO Initiated by IdP. In this case, the action takes place on the IdP side, the logout process is initiated at the IdP, sends a Logout Request to the SP (SLS endpoint, /?sls). The SLS endpoint of the SP process the Logout Request and if is valid, close the session of the user at the local app and send a Logout Response to the IdP (to the SLS endpoint of the IdP). The IdP receives the Logout Response, process it and close the session at of the IdP. Notice that the SLO Workflow starts and ends at the IdP.
+
+Notice that all the SAML Requests and Responses are handled at a unique view (index) and how GET parameters are used to know the action that must be done.

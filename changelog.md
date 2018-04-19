@@ -1,4 +1,68 @@
 # python-saml changelog
+### 2.4.0 (Feb 27, 2018)
+* Fix vulnerability [CVE-2017-11427](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2017-11427). Process text of nodes properly, ignoring comments
+* Improve how fingerprint is calcultated
+* Fix issue with LogoutRequest rejected by ADFS due NameID with unspecified format instead no format attribute
+* Be able to invalidate a SAMLResponse if it contains InResponseTo value but no RequestId parameter provided at the is_valid method. See rejectUnsolicitedResponsesWithInResponseTo security parameter (By default deactivated)
+* Fix signature position in the SP metadata
+* Redefine NSMAP constant
+
+### 2.3.0 (Sep 15, 2017)
+* [#205](https://github.com/onelogin/python-saml/pull/205) Improve decrypt method, Add an option to decrypt an element in place or copy it before decryption.
+* [#204](https://github.com/onelogin/python-saml/pull/204) On a LogoutRequest if the NameIdFormat is entity, NameQualifier and SPNameQualifier will be ommited. If the NameIdFormat is not entity and a NameQualifier is provided, then the SPNameQualifier will be also added.
+* Be able to get at the auth object the last processed ID (response/assertion) and the last generated ID.
+* Reset errorReason attribute of the auth object before each Process method
+* Fix issue on getting multiple certs when only sign or encryption certs
+* Allow empty nameid if setting wantNameId is false. Only raise Exceptions when strict mode is enabled
+
+### 2.2.3 (Jun 15, 2017)
+* Replace some etree.tostring calls, that were introduced recfently,  by the sanitized call provided by defusedxml
+* Update dm.xmlsec.binding requirement to 1.3.3 version
+
+### 2.2.2 (May 18, 2017)
+* Be able to relax SSL Certificate verification when retrieving idp metadata
+* [#195](https://github.com/onelogin/python-saml/pull/195) Be able to register future SP x509cert on the settings and publish it on SP metadata
+* [#195](https://github.com/onelogin/python-saml/pull/195) Be able to register more than 1 Identity Provider x509cert, linked with an specific use (signing or encryption
+* [#195](https://github.com/onelogin/python-saml/pull/195) Allow metadata to be retrieved from source containing data of multiple entities
+* [#195](https://github.com/onelogin/python-saml/pull/195) Adapt IdP XML metadata parser to take care of multiple IdP certtificates and be able to inject the data obtained on the settings.
+* [#194](https://github.com/onelogin/python-saml/pull/194) Publish KeyDescriptor[use=encryption] only when required
+* [#190](https://github.com/onelogin/python-saml/pull/190) Checking the status of response before assertion count
+* Add Pyramid demo example
+* Allows underscores in URL hosts
+* NameID Format improvements
+* [#184](https://github.com/onelogin/python-saml/pull/184) Be able to provide a NameIDFormat to LogoutRequest
+* [#180](https://github.com/onelogin/python-saml/pull/180) Add DigestMethod support. (Add sign_algorithm and digest_algorithm parameters to sign_metadata and add_sign)
+* Validate serial number as string to work around libxml2 limitation
+* Make the Issuer on the Response Optional
+
+
+### 2.2.1 (Jan 11, 2017)
+* [#175](https://github.com/onelogin/python-saml/pull/175)  Optionally raise detailed exceptions vs. returning False.
+Implement a more specific exception class for handling some validation errors. Improve/Fix tests
+* [#171](https://github.com/onelogin/python-saml/pull/171) Add hooks to retrieve last-sent and last-received requests and responses
+* Improved inResponse validation on Responses
+* [#173](https://github.com/onelogin/python-saml/pull/173) Fix attributeConsumingService serviceName format in README
+
+
+### 2.2.0 (Oct 14, 2016)
+* Several security improvements:
+  * Conditions element required and unique.
+  * AuthnStatement element required and unique.
+  * SPNameQualifier must math the SP EntityID
+  * Reject saml:Attribute element with same “Name” attribute
+  * Reject empty nameID
+  * Require Issuer element. (Must match IdP EntityID).
+  * Destination value can't be blank (if present must match ACS URL).
+  * Check that the EncryptedAssertion element only contains 1 Assertion element.
+* Improve Signature validation process
+* [#149](https://github.com/onelogin/python-saml/pull/149) Work-around for xmlsec.initialize
+* [#151](https://github.com/onelogin/python-saml/pull/151) Fix flask demo error handling and improve documentation
+* [#152](https://github.com/onelogin/python-saml/pull/152) Update LICENSE to include MIT rather than BSD license 
+* [#155](https://github.com/onelogin/python-saml/pull/155) Fix typographical errors in docstring
+* Fix RequestedAttribute Issue
+* Fix __build_signature method. If relay_state is null not be part of the SignQuery
+* [#164](https://github.com/onelogin/python-saml/pull/164) Add support for non-ascii fields in settings
+
 
 ### 2.1.9 (Jun 27, 2016)
 * Change the decrypt assertion process.

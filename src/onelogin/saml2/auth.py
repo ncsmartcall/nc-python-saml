@@ -13,6 +13,7 @@ Initializes the SP SAML instance
 
 from base64 import b64encode
 from urllib import quote_plus
+from defusedxml.lxml import tostring
 
 from onelogin.saml2.settings import OneLogin_Saml2_Settings
 from onelogin.saml2.response import OneLogin_Saml2_Response
@@ -51,12 +52,18 @@ class OneLogin_Saml2_Auth(object):
         self.__settings = OneLogin_Saml2_Settings(old_settings, custom_base_path)
         self.__attributes = []
         self.__nameid = None
+        self.__nameid_format = None
         self.__session_index = None
         self.__session_expiration = None
         self.__authenticated = False
         self.__errors = []
         self.__error_reason = None
         self.__last_request_id = None
+        self.__last_message_id = None
+        self.__last_assertion_id = None
+        self.__last_assertion_not_on_or_after = None
+        self.__last_request = None
+        self.__last_response = None
 
     def get_settings(self):
         """
@@ -86,16 +93,21 @@ class OneLogin_Saml2_Auth(object):
         :raises: OneLogin_Saml2_Error.SAML_RESPONSE_NOT_FOUND, when a POST with a SAMLResponse is not found
         """
         self.__errors = []
+        self.__error_reason = None
 
         if 'post_data' in self.__request_data and 'SAMLResponse' in self.__request_data['post_data']:
             # AuthnResponse -- HTTP_POST Binding
             response = OneLogin_Saml2_Response(self.__settings, self.__request_data['post_data']['SAMLResponse'])
-
+            self.__last_response = response.get_xml_document()
             if response.is_valid(self.__request_data, request_id):
                 self.__attributes = response.get_attributes()
                 self.__nameid = response.get_nameid()
+                self.__nameid_format = response.get_nameid_format()
                 self.__session_index = response.get_session_index()
                 self.__session_expiration = response.get_session_not_on_or_after()
+                self.__last_message_id = response.get_id()
+                self.__last_assertion_id = response.get_assertion_id()
+                self.__last_assertion_not_on_or_after = response.get_assertion_not_on_or_after()
                 self.__authenticated = True
 
             else:
@@ -122,19 +134,24 @@ class OneLogin_Saml2_Auth(object):
         :returns: Redirection URL
         """
         self.__errors = []
+        self.__error_reason = None
 
         if 'get_data' in self.__request_data and 'SAMLResponse' in self.__request_data['get_data']:
             logout_response = OneLogin_Saml2_Logout_Response(self.__settings, self.__request_data['get_data']['SAMLResponse'])
+            self.__last_response = logout_response.get_xml()
             if not logout_response.is_valid(self.__request_data, request_id):
                 self.__errors.append('invalid_logout_response')
                 self.__error_reason = logout_response.get_error()
             elif logout_response.get_status() != OneLogin_Saml2_Constants.STATUS_SUCCESS:
                 self.__errors.append('logout_not_success')
-            elif not keep_local_session:
-                OneLogin_Saml2_Utils.delete_local_session(delete_session_cb)
+            else:
+                self.__last_message_id = logout_response.id
+                if not keep_local_session:
+                    OneLogin_Saml2_Utils.delete_local_session(delete_session_cb)
 
         elif 'get_data' in self.__request_data and 'SAMLRequest' in self.__request_data['get_data']:
             logout_request = OneLogin_Saml2_Logout_Request(self.__settings, self.__request_data['get_data']['SAMLRequest'])
+            self.__last_request = logout_request.get_xml()
             if not logout_request.is_valid(self.__request_data):
                 self.__errors.append('invalid_logout_request')
                 self.__error_reason = logout_request.get_error()
@@ -143,8 +160,10 @@ class OneLogin_Saml2_Auth(object):
                     OneLogin_Saml2_Utils.delete_local_session(delete_session_cb)
 
                 in_response_to = logout_request.id
+                self.__last_message_id = logout_request.id
                 response_builder = OneLogin_Saml2_Logout_Response(self.__settings)
                 response_builder.build(in_response_to)
+                self.__last_response = response_builder.get_xml()
                 logout_response = response_builder.get_response()
 
                 parameters = {'SAMLResponse': logout_response}
@@ -208,6 +227,15 @@ class OneLogin_Saml2_Auth(object):
         """
         return self.__nameid
 
+    def get_nameid_format(self):
+        """
+        Returns the nameID Format.
+
+        :returns: NameID Format
+        :rtype: string|None
+        """
+        return self.__nameid_format
+
     def get_session_index(self):
         """
         Returns the SessionIndex from the AuthnStatement.
@@ -223,6 +251,13 @@ class OneLogin_Saml2_Auth(object):
         :rtype: DateTime|None
         """
         return self.__session_expiration
+
+    def get_last_assertion_not_on_or_after(self):
+        """
+        The NotOnOrAfter value of the valid SubjectConfirmationData node
+        (if any) of the last assertion processed
+        """
+        return self.__last_assertion_not_on_or_after
 
     def get_errors(self):
         """
@@ -265,6 +300,20 @@ class OneLogin_Saml2_Auth(object):
         """
         return self.__last_request_id
 
+    def get_last_message_id(self):
+        """
+        :returns: The ID of the last Response SAML message processed.
+        :rtype: string
+        """
+        return self.__last_message_id
+
+    def get_last_assertion_id(self):
+        """
+        :returns: The ID of the last assertion processed.
+        :rtype: string
+        """
+        return self.__last_assertion_id
+
     def login(self, return_to=None, force_authn=False, is_passive=False, set_nameid_policy=True):
         """
         Initiates the SSO process.
@@ -285,12 +334,11 @@ class OneLogin_Saml2_Auth(object):
         :rtype: string
         """
         authn_request = OneLogin_Saml2_Authn_Request(self.__settings, force_authn, is_passive, set_nameid_policy)
-
+        self.__last_request = authn_request.get_xml()
         self.__last_request_id = authn_request.get_id()
-
         saml_request = authn_request.get_request()
-        parameters = {'SAMLRequest': saml_request}
 
+        parameters = {'SAMLRequest': saml_request}
         if return_to is not None:
             parameters['RelayState'] = return_to
         else:
@@ -302,7 +350,7 @@ class OneLogin_Saml2_Auth(object):
             parameters['Signature'] = self.build_request_signature(saml_request, parameters['RelayState'], security['signatureAlgorithm'])
         return self.redirect_to(self.get_sso_url(), parameters)
 
-    def logout(self, return_to=None, name_id=None, session_index=None, nq=None):
+    def logout(self, return_to=None, name_id=None, session_index=None, nq=None, name_id_format=None):
         """
         Initiates the SLO process.
 
@@ -318,6 +366,9 @@ class OneLogin_Saml2_Auth(object):
         :param nq: IDP Name Qualifier
         :type: string
 
+        :param name_id_format: The NameID Format that will be set in the LogoutRequest.
+        :type: string
+
         :returns: Redirection url
         """
         slo_url = self.get_slo_url()
@@ -329,15 +380,18 @@ class OneLogin_Saml2_Auth(object):
 
         if name_id is None and self.__nameid is not None:
             name_id = self.__nameid
+        if name_id_format is None and self.__nameid_format is not None:
+            name_id_format = self.__nameid_format
 
         logout_request = OneLogin_Saml2_Logout_Request(
             self.__settings,
             name_id=name_id,
             session_index=session_index,
+            nq=nq,
+            name_id_format=name_id_format
         )
-
+        self.__last_request = logout_request.get_xml()
         self.__last_request_id = logout_request.id
-
         saml_request = logout_request.get_request()
 
         parameters = {'SAMLRequest': logout_request.get_request()}
@@ -427,7 +481,7 @@ class OneLogin_Saml2_Auth(object):
         if not key:
             raise OneLogin_Saml2_Error(
                 "Trying to sign the %s but can't load the SP private key" % saml_type,
-                OneLogin_Saml2_Error.SP_CERTS_NOT_FOUND
+                OneLogin_Saml2_Error.PRIVATE_KEY_NOT_FOUND
             )
 
         dsig_ctx = xmlsec.DSigCtx()
@@ -450,3 +504,28 @@ class OneLogin_Saml2_Auth(object):
 
         signature = dsig_ctx.signBinary(str(msg), sign_algorithm_transform)
         return b64encode(signature)
+
+    def get_last_response_xml(self, pretty_print_if_possible=False):
+        """
+        Retrieves the raw XML (decrypted) of the last SAML response,
+        or the last Logout Response generated or processed
+
+        :returns: SAML response XML
+        :rtype: string|None
+        """
+        response = None
+        if self.__last_response is not None:
+            if isinstance(self.__last_response, basestring):
+                response = self.__last_response
+            else:
+                response = tostring(self.__last_response, pretty_print=pretty_print_if_possible)
+        return response
+
+    def get_last_request_xml(self):
+        """
+        Retrieves the raw XML sent in the last SAML request
+
+        :returns: SAML request XML
+        :rtype: string|None
+        """
+        return self.__last_request or None
